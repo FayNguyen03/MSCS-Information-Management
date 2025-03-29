@@ -413,7 +413,7 @@ BEGIN
     DECLARE CSReq INT DEFAULT 0;
     DECLARE SDSReq INT DEFAULT 0;
 
-    -- 📌 MATH MAJOR LOGIC
+    -- MATH MAJOR LOGIC
     IF NEW.math_major = 1 AND OLD.math_major = 0 THEN
         SELECT COUNT(*) INTO MathCourseTaken 
         FROM Grade  
@@ -436,7 +436,7 @@ BEGIN
         DELETE FROM DegreePath WHERE student_id = OLD.student_id AND major_code = 'M';
     END IF;
 
-    -- 📌 CS MAJOR LOGIC
+    -- CS MAJOR LOGIC
     IF NEW.cs_major = 1 AND OLD.cs_major = 0 THEN
         SELECT COUNT(*) INTO CSCourseTaken 
         FROM Grade  
@@ -459,7 +459,7 @@ BEGIN
         DELETE FROM DegreePath WHERE student_id = OLD.student_id AND major_code = 'CS';
     END IF;
 
-    -- 📌 SDS MAJOR LOGIC
+    -- SDS MAJOR LOGIC
     IF NEW.sds_major = 1 AND OLD.sds_major = 0 THEN
         SELECT COUNT(*) INTO SDSCourseTaken 
         FROM Grade  
@@ -468,7 +468,7 @@ BEGIN
         IF SDSCourseTaken = 0 THEN
             INSERT INTO DegreePath VALUES (NEW.student_id, 'SDS', 0, FALSE, 0.0);
         ELSE
-            SELECT (SUM(LetterGrade.numeric_value) / COUNT(*)) INTO SDSGPA 
+            SELECT (SUM(LetterGrade.numeric_grade) / COUNT(*)) INTO SDSGPA 
             FROM Grade JOIN LetterGrade ON Grade.letter_grade = LetterGrade.letter
             WHERE student_id = NEW.student_id AND (course_id LIKE 'SDS%' OR course_id IN ('M262'));
 
@@ -577,24 +577,24 @@ BEGIN
     DECLARE NewGradeNumeric DECIMAL(4,2);
 
     -- Get numeric values for old and new grades
-    SELECT numeric_value INTO OldGradeNumeric FROM LetterGrade WHERE letter = OLD.letter_grade;
-    SELECT numeric_value INTO NewGradeNumeric FROM LetterGrade WHERE letter = NEW.letter_grade;
+    SELECT numeric_grade INTO OldGradeNumeric FROM LetterGrade WHERE letter = OLD.letter_grade;
+    SELECT numeric_grade INTO NewGradeNumeric FROM LetterGrade WHERE letter = NEW.letter_grade;
 
-    -- 📘 Math Major
+    -- Math Major
     IF OLD.course_id LIKE 'M%' OR OLD.course_id IN ('SDS322', 'SDS264', 'SDS272') THEN
         UPDATE DegreePath
         SET major_gpa = (num_courses_taken * major_gpa - OldGradeNumeric + NewGradeNumeric) / num_courses_taken
         WHERE student_id = NEW.student_id AND major_code = 'M';
     END IF;
 
-    -- 💻 CS Major
+    -- CS Major
     IF OLD.course_id LIKE 'CS%' OR OLD.course_id IN ('M220', 'M234', 'SDS341') THEN
         UPDATE DegreePath
         SET major_gpa = (num_courses_taken * major_gpa - OldGradeNumeric + NewGradeNumeric) / num_courses_taken
         WHERE student_id = NEW.student_id AND major_code = 'CS';
     END IF;
 
-    -- 📊 SDS Major
+    -- SDS Major
     IF OLD.course_id LIKE 'SDS%' OR OLD.course_id IN ('M262') THEN
         UPDATE DegreePath
         SET major_gpa = (num_courses_taken * major_gpa - OldGradeNumeric + NewGradeNumeric) / num_courses_taken
@@ -626,5 +626,105 @@ DELIMITER ;
 
 -- Create View
 
+DROP VIEW IF EXISTS dean_list;
+
+CREATE VIEW dean_list AS
+SELECT DISTINCT s.first_name, s.last_name, 
+FROM Student AS s JOIN DegreePath as d ON s.student_id = d.student_id
+WHERE d.major_gpa >= 3.75;
 
 
+DROP VIEW IF EXISTS graduate_ready;
+
+CREATE VIEW graduate_ready AS
+WITH helper AS(
+    SELECT s.student_id, 
+        CASE 
+            WHEN (AVG(d.major_gpa) >= 3.9) THEN 'Summa Cum Laude'
+            WHEN (AVG(d.major_gpa) >= 3.75) THEN 'Magna Cum Laude'
+            WHEN (AVG(d.major_gpa) >= 3.6) THEN 'Cum Laude'
+            ELSE NULL
+        END AS honor,
+        CASE 
+            WHEN (SUM(CASE WHEN(d.finish_major = true) THEN 1 ELSE 0 END) = (s.math_major + s.cs_major + s.sds_major)) THEN true
+            ELSE FALSE
+        END AS graduate_ready
+    FROM Student AS s JOIN DegreePath as d
+    ON s.student_id = d.student_id
+    GROUP BY s.student_id)
+SELECT s.first_name, s.last_name, s.class_year, h.honor
+FROM Student AS s JOIN helper as h ON s.student_id = h.student_id
+WHERE h.graduate_ready = TRUE;
+
+
+DROP VIEW IF EXISTS faculty_classes;
+
+CREATE VIEW faculty_classes AS
+SELECT f.faculty_id, f.first_name, f.last_name, COUNT(*) AS number_classes_teach
+FROM Faculty AS f JOIN CourseRegistration as c  
+ON f.faculty_id = c.lecturer_id
+GROUP BY f.faculty_id;
+
+DROP VIEW IF EXISTS directors;
+
+CREATE VIEW directors AS
+SELECT f.faculty_id, f.first_name, f.last_name, m.major_name AS major
+FROM Major AS m JOIN Faculty as f  
+ON m.major_director = f.faculty_id;
+
+-- Security: role-based access control
+DROP ROLE IF EXISTS 'mscs_director';
+CREATE ROLE 'mscs_director';
+
+GRANT ALL PRIVILEGES
+ON knguyent_2425_db
+TO 'mscs_director'
+;
+
+DROP ROLE IF EXISTS 'major_director';
+CREATE ROLE 'major_director';
+
+GRANT SELECT
+ON knguyent_2425_db.Major
+TO 'major_director'
+;
+
+GRANT SELECT
+ON knguyent_2425_db.Student
+TO 'major_director'
+;
+
+GRANT SELECT
+ON knguyent_2425_db.DegreePath
+TO 'major_director'
+;
+
+GRANT SELECT
+ON knguyent_2425_db.CourseRegistration
+TO 'major_director'
+;
+
+DROP ROLE IF EXISTS 'faculty_member';
+CREATE ROLE 'faculty_member';
+
+GRANT ALL PRIVILEGES
+ON knguyent_2425_db.Grade
+TO 'faculty_member';
+
+GRANT SELECT
+ON knguyent_2425_db.Student
+TO 'faculty_member'
+;
+
+GRANT SELECT
+ON knguyent_2425_db.CourseRegistration
+TO 'faculty_member'
+;
+
+DROP ROLE IF EXISTS 'student';
+CREATE ROLE 'student';
+
+GRANT SELECT
+ON knguyent_2425_db.CourseRegistration
+TO 'student'
+;
