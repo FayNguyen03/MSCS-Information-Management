@@ -36,7 +36,7 @@ CREATE TABLE CourseRegistration (
     UNIQUE (class_year, semester, course_id, section),  
     FOREIGN KEY (course_id) REFERENCES Course(course_id),
     FOREIGN KEY (lecturer_id) REFERENCES Faculty(faculty_id)
-);l
+);
 
 
 CREATE TABLE Grade (
@@ -307,7 +307,6 @@ BEGIN
 END;
 //
 
-DELIMITER ;
 
 
 DELIMITER //
