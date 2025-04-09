@@ -38,6 +38,10 @@ CREATE TABLE CourseRegistration (
     FOREIGN KEY (lecturer_id) REFERENCES Faculty(faculty_id)
 );
 
+CREATE TABLE LetterGrade (
+    letter VARCHAR(2) PRIMARY KEY,
+    numeric_grade DOUBLE(3, 2)
+);
 
 CREATE TABLE Grade (
     student_id INT UNSIGNED,
@@ -46,7 +50,7 @@ CREATE TABLE Grade (
     FOREIGN KEY (student_id) REFERENCES Student(student_id),
     FOREIGN KEY (course_id) REFERENCES Course(course_id), 
     FOREIGN KEY (letter_grade) REFERENCES LetterGrade(letter), 
-    UNIQUE(student_id, course_id)
+    PRIMARY KEY(student_id, course_id)
 );
 
 CREATE TABLE Major (
@@ -69,11 +73,14 @@ CREATE TABLE DegreePath (
     UNIQUE (student_id, major_code)
 );
 
-CREATE TABLE LetterGrade (
-    letter VARCHAR(2) PRIMARY KEY,
-    numeric_grade DOUBLE(3, 2)
-);
 
+CREATE TABLE CourseCountedToMajor (
+    major_code VARCHAR(3),
+    course_id VARCHAR(10),
+    FOREIGN KEY (major_code) REFERENCES Major(major_code),
+    FOREIGN KEY (course_id) REFERENCES Course(course_id),
+    PRIMARY KEY(major_code, course_id)
+);
 
 --Populating data
 
@@ -140,6 +147,46 @@ INSERT INTO Course VALUES ('SDS264', 'Advanced Data Science', 30, 1, false);
 INSERT INTO Course VALUES ('SDS272', 'Statistical Modelling', 30, 2, false);
 INSERT INTO Course VALUES ('SDS322', 'Statistical Theory', 30, 1, false);
 INSERT INTO Course VALUES ('SDS341', 'Algorithms for Decision Making', 30, 1, false);
+
+-- CourseCountedToMajor Data
+INSERT INTO CourseCountedToMajor VALUES ('M', 'M120');
+INSERT INTO CourseCountedToMajor VALUES ('M', 'M126');
+INSERT INTO CourseCountedToMajor VALUES ('M', 'M128');
+INSERT INTO CourseCountedToMajor VALUES ('M', 'M220');
+INSERT INTO CourseCountedToMajor VALUES ('CS', 'M220');
+INSERT INTO CourseCountedToMajor VALUES ('M', 'M226');
+INSERT INTO CourseCountedToMajor VALUES ('M', 'M232');
+INSERT INTO CourseCountedToMajor VALUES ('M', 'M234');
+INSERT INTO CourseCountedToMajor VALUES ('CS', 'M234');
+INSERT INTO CourseCountedToMajor VALUES ('M', 'M242');
+INSERT INTO CourseCountedToMajor VALUES ('M', 'M244');
+INSERT INTO CourseCountedToMajor VALUES ('M', 'M252');
+INSERT INTO CourseCountedToMajor VALUES ('M', 'M262');
+INSERT INTO CourseCountedToMajor VALUES ('SDS', 'M220');
+INSERT INTO CourseCountedToMajor VALUES ('M', 'M320');
+INSERT INTO CourseCountedToMajor VALUES ('M', 'M332');
+
+INSERT INTO CourseCountedToMajor VALUES ('CS','CS121');
+INSERT INTO CourseCountedToMajor VALUES ('CS','CS221');
+INSERT INTO CourseCountedToMajor VALUES ('CS','CS241');
+INSERT INTO CourseCountedToMajor VALUES ('CS','CS251');
+INSERT INTO CourseCountedToMajor VALUES ('CS','CS263');
+INSERT INTO CourseCountedToMajor VALUES ('CS','CS276');
+INSERT INTO CourseCountedToMajor VALUES ('CS','CS353');
+INSERT INTO CourseCountedToMajor VALUES ('M','CS353');
+INSERT INTO CourseCountedToMajor VALUES ('CS','CS379');
+
+INSERT INTO CourseCountedToMajor VALUES ('SDS','SDS164');
+INSERT INTO CourseCountedToMajor VALUES ('SDS','SDS172');
+INSERT INTO CourseCountedToMajor VALUES ('SDS','SDS250');
+INSERT INTO CourseCountedToMajor VALUES ('SDS','SDS264');
+INSERT INTO CourseCountedToMajor VALUES ('SDS','SDS272');
+INSERT INTO CourseCountedToMajor VALUES ('M','SDS264');
+INSERT INTO CourseCountedToMajor VALUES ('M','SDS272');
+INSERT INTO CourseCountedToMajor VALUES ('SDS','SDS322');
+INSERT INTO CourseCountedToMajor VALUES ('M','SDS322');
+INSERT INTO CourseCountedToMajor VALUES ('SDS','SDS341');
+INSERT INTO CourseCountedToMajor VALUES ('M','SDS341');
 
 -- Course Registration Data
 
@@ -242,6 +289,7 @@ INSERT INTO Grade VALUES(5, 'CS121', 'A-'), (5, 'CS221', 'A+'), (5, 'M126', 'A')
 -- Letter Grade
 
 INSERT INTO LetterGrade VALUES ('A+', 4.0), ('A', 4.0), ('A-', 3.7), ('B+', 3.3), ('B', 3.0), ('B-', 2.7), ('C+', 2.3), ('C', 2.0), ('C-', 1.7), ('D+', 1.3), ('D', 1.0), ('F', 0.0);
+
 -- Everytime we add a new student into the Student table, we adjust the Major table
 
 DELIMITER //
@@ -413,23 +461,28 @@ BEGIN
     DECLARE SDSReq INT DEFAULT 0;
 
     -- MATH MAJOR LOGIC
+    -- MATH major
     IF NEW.math_major = 1 AND OLD.math_major = 0 THEN
-        SELECT COUNT(*) INTO MathCourseTaken 
-        FROM Grade  
-        WHERE student_id = NEW.student_id AND (course_id LIKE 'M%' OR course_id IN ('SDS322', 'SDS264', 'SDS272', 'CS353'));
+        SELECT COUNT(*) INTO MathCourseTaken
+        FROM Grade G
+        JOIN CourseCountedToMajor CCM ON G.course_id = CCM.course_id
+        WHERE G.student_id = NEW.student_id AND CCM.major_code = 'M';
 
         IF MathCourseTaken = 0 THEN
             INSERT INTO DegreePath VALUES (NEW.student_id, 'M', 0, FALSE, 0.0);
         ELSE
-            SELECT (SUM(LetterGrade.numeric_grade) / COUNT(*)) INTO MathGPA 
-            FROM Grade JOIN LetterGrade ON Grade.letter_grade = LetterGrade.letter
-            WHERE student_id = NEW.student_id AND (course_id LIKE 'M%' OR course_id IN ('SDS322', 'SDS264', 'SDS272', 'CS353'));
+            SELECT SUM(LG.numeric_grade)/COUNT(*) INTO MathGPA
+            FROM Grade G
+            JOIN CourseCountedToMajor CCM ON G.course_id = CCM.course_id
+            JOIN LetterGrade LG ON G.letter_grade = LG.letter
+            WHERE G.student_id = NEW.student_id AND CCM.major_code = 'M';
 
             SELECT num_courses_required INTO MathReq FROM Major WHERE major_code = 'M';
 
             INSERT INTO DegreePath
             VALUES (NEW.student_id, 'M', MathCourseTaken, (MathCourseTaken >= MathReq), MathGPA);
         END IF;
+
         
     ELSEIF NEW.math_major = 0 AND OLD.math_major = 1 THEN
         DELETE FROM DegreePath WHERE student_id = OLD.student_id AND major_code = 'M';
@@ -437,16 +490,19 @@ BEGIN
 
     -- CS MAJOR LOGIC
     IF NEW.cs_major = 1 AND OLD.cs_major = 0 THEN
-        SELECT COUNT(*) INTO CSCourseTaken 
-        FROM Grade  
-        WHERE student_id = NEW.student_id AND (course_id LIKE 'CS%' OR course_id IN ('M220', 'M234', 'SDS341'));
+        SELECT COUNT(*) INTO CSCourseTaken
+        FROM Grade G
+        JOIN CourseCountedToMajor CCM ON G.course_id = CCM.course_id
+        WHERE G.student_id = NEW.student_id AND CCM.major_code = 'CS';
 
         IF CSCourseTaken = 0 THEN
             INSERT INTO DegreePath VALUES (NEW.student_id, 'CS', 0, FALSE, 0.0);
         ELSE
-            SELECT (SUM(LetterGrade.numeric_grade) / COUNT(*)) INTO CSGPA 
-            FROM Grade JOIN LetterGrade ON Grade.letter_grade = LetterGrade.letter
-            WHERE student_id = NEW.student_id AND (course_id LIKE 'CS%' OR course_id IN ('M220', 'M234', 'SDS341'));
+            SELECT SUM(LG.numeric_grade)/COUNT(*) INTO CSGPA
+            FROM Grade G
+            JOIN CourseCountedToMajor CCM ON G.course_id = CCM.course_id
+            JOIN LetterGrade LG ON G.letter_grade = LG.letter
+            WHERE G.student_id = NEW.student_id AND CCM.major_code = 'CS';
 
             SELECT num_courses_required INTO CSReq FROM Major WHERE major_code = 'CS';
 
@@ -460,16 +516,19 @@ BEGIN
 
     -- SDS MAJOR LOGIC
     IF NEW.sds_major = 1 AND OLD.sds_major = 0 THEN
-        SELECT COUNT(*) INTO SDSCourseTaken 
-        FROM Grade  
-        WHERE student_id = NEW.student_id AND (course_id LIKE 'SDS%' OR course_id IN ('M262'));
+        SELECT COUNT(*) INTO SDSCourseTaken
+        FROM Grade G
+        JOIN CourseCountedToMajor CCM ON G.course_id = CCM.course_id
+        WHERE G.student_id = NEW.student_id AND CCM.major_code = 'SDS';
 
         IF SDSCourseTaken = 0 THEN
             INSERT INTO DegreePath VALUES (NEW.student_id, 'SDS', 0, FALSE, 0.0);
         ELSE
-            SELECT (SUM(LetterGrade.numeric_grade) / COUNT(*)) INTO SDSGPA 
-            FROM Grade JOIN LetterGrade ON Grade.letter_grade = LetterGrade.letter
-            WHERE student_id = NEW.student_id AND (course_id LIKE 'SDS%' OR course_id IN ('M262'));
+            SELECT SUM(LG.numeric_grade)/COUNT(*) INTO SDSGPA
+            FROM Grade G
+            JOIN CourseCountedToMajor CCM ON G.course_id = CCM.course_id
+            JOIN LetterGrade LG ON G.letter_grade = LG.letter
+            WHERE G.student_id = NEW.student_id AND CCM.major_code = 'SDS';
 
             SELECT num_courses_required INTO SDSReq FROM Major WHERE major_code = 'SDS';
 
@@ -492,33 +551,22 @@ FOR EACH ROW
 BEGIN
     DECLARE GradeNumeric DECIMAL(3,2);
 
-    -- Convert letter grade to numeric value
-    SELECT numeric_grade INTO GradeNumeric FROM LetterGrade WHERE letter = NEW.letter_grade;
+    -- Convert letter grade to numeric
+    SELECT numeric_grade INTO GradeNumeric
+    FROM LetterGrade
+    WHERE letter = NEW.letter_grade;
 
-    -- Update Math Major DegreePath
-    IF NEW.course_id LIKE 'M%' OR NEW.course_id IN ('SDS322', 'SDS264', 'SDS272', 'CS353') THEN
-        UPDATE DegreePath
-        SET major_gpa = (num_courses_taken * major_gpa + GradeNumeric) / (num_courses_taken + 1), num_courses_taken = num_courses_taken + 1
-        WHERE student_id = NEW.student_id AND major_code = 'M';
-    END IF;
+    -- Update all DegreePath rows where the course is counted toward a major
+    UPDATE DegreePath DP
+    JOIN CourseCountedToMajor CCM ON CCM.major_code = DP.major_code
+    SET DP.major_gpa = (DP.num_courses_taken * DP.major_gpa + GradeNumeric) / (DP.num_courses_taken + 1),
+        DP.num_courses_taken = DP.num_courses_taken + 1
+    WHERE DP.student_id = NEW.student_id
+      AND CCM.course_id = NEW.course_id;
 
-    -- Update CS Major DegreePath
-    IF NEW.course_id LIKE 'CS%' OR NEW.course_id IN ('M220', 'M234', 'SDS341') THEN
-        UPDATE DegreePath
-        SET major_gpa = (num_courses_taken * major_gpa + GradeNumeric) / (num_courses_taken + 1), num_courses_taken = num_courses_taken + 1
-        WHERE student_id = NEW.student_id AND major_code = 'CS';
-    END IF;
-
-    -- Update SDS Major DegreePath
-    IF NEW.course_id LIKE 'SDS%'  OR NEW.course_id IN ('M262') THEN
-        UPDATE DegreePath
-        SET major_gpa = (num_courses_taken * major_gpa + GradeNumeric) / (num_courses_taken + 1), num_courses_taken = num_courses_taken + 1
-        WHERE student_id = NEW.student_id AND major_code = 'SDS';
-    END IF;
 END;
 //
 
-DELIMITER ;
 
 DELIMITER //
 CREATE TRIGGER GradeDelete
@@ -527,44 +575,24 @@ FOR EACH ROW
 BEGIN
     DECLARE GradeNumeric DECIMAL(3,2);
 
-    -- Convert letter grade to numeric value
-        SELECT numeric_grade INTO GradeNumeric FROM LetterGrade WHERE letter = OLD.letter_grade;
+    -- Convert letter grade to numeric
+    SELECT numeric_grade INTO GradeNumeric 
+    FROM LetterGrade 
+    WHERE letter = OLD.letter_grade;
 
-
-    -- Update Math Major DegreePath
-    IF OLD.course_id LIKE 'M%' OR OLD.course_id IN ('SDS322', 'SDS264', 'SDS272') THEN
-        UPDATE DegreePath
-        SET major_gpa = CASE 
-            WHEN num_courses_taken = 1 THEN 0.0
-            ELSE (num_courses_taken * major_gpa - GradeNumeric) / (num_courses_taken - 1)
+    -- Update DegreePath for all majors where the deleted course counts
+    UPDATE DegreePath DP
+    JOIN CourseCountedToMajor CCM ON DP.major_code = CCM.major_code
+    SET 
+        major_gpa = CASE 
+            WHEN DP.num_courses_taken = 1 THEN 0.0
+            ELSE (DP.num_courses_taken * DP.major_gpa - GradeNumeric) / (DP.num_courses_taken - 1)
         END,
-        num_courses_taken = num_courses_taken - 1
-        WHERE student_id = OLD.student_id AND major_code = 'M';
-    END IF;
+        num_courses_taken = DP.num_courses_taken - 1
+    WHERE DP.student_id = OLD.student_id
+      AND CCM.course_id = OLD.course_id;
 
-    -- Update CS Major DegreePath
-    IF OLD.course_id LIKE 'CS%' OR OLD.course_id IN ('M220', 'M234', 'SDS341') THEN
-        UPDATE DegreePath
-        SET major_gpa = CASE 
-            WHEN num_courses_taken = 1 THEN 0.0
-            ELSE (num_courses_taken * major_gpa - GradeNumeric) / (num_courses_taken - 1)
-        END,
-        num_courses_taken = num_courses_taken - 1
-        WHERE student_id = OLD.student_id AND major_code = 'CS';
-    END IF;
-
-    -- Update SDS Major DegreePath
-    IF OLD.course_id LIKE 'SDS%' OR OLD.course_id IN ('M262') THEN
-        UPDATE DegreePath
-        SET major_gpa = CASE 
-            WHEN num_courses_taken = 1 THEN 0 
-            ELSE (num_courses_taken * major_gpa - GradeNumeric) / (num_courses_taken - 1)
-        END,
-        num_courses_taken = num_courses_taken - 1
-        WHERE student_id = OLD.student_id AND major_code = 'SDS';
-    END IF;
-
-END //
+END;//
 
 DELIMITER //
 
@@ -572,33 +600,26 @@ CREATE TRIGGER GradeUpdate
 AFTER UPDATE ON Grade
 FOR EACH ROW
 BEGIN
-    DECLARE OldGradeNumeric DECIMAL(4,2);
-    DECLARE NewGradeNumeric DECIMAL(4,2);
+    DECLARE OldGradeNumeric DECIMAL(3,2);
+    DECLARE NewGradeNumeric DECIMAL(3,2);
 
-    -- Get numeric values for old and new grades
-    SELECT numeric_grade INTO OldGradeNumeric FROM LetterGrade WHERE letter = OLD.letter_grade;
-    SELECT numeric_grade INTO NewGradeNumeric FROM LetterGrade WHERE letter = NEW.letter_grade;
+    -- Convert both old and new letter grades
+    SELECT numeric_grade INTO OldGradeNumeric 
+    FROM LetterGrade 
+    WHERE letter = OLD.letter_grade;
 
-    -- Math Major
-    IF OLD.course_id LIKE 'M%' OR OLD.course_id IN ('SDS322', 'SDS264', 'SDS272') THEN
-        UPDATE DegreePath
-        SET major_gpa = (num_courses_taken * major_gpa - OldGradeNumeric + NewGradeNumeric) / num_courses_taken
-        WHERE student_id = NEW.student_id AND major_code = 'M';
-    END IF;
+    SELECT numeric_grade INTO NewGradeNumeric 
+    FROM LetterGrade 
+    WHERE letter = NEW.letter_grade;
 
-    -- CS Major
-    IF OLD.course_id LIKE 'CS%' OR OLD.course_id IN ('M220', 'M234', 'SDS341') THEN
-        UPDATE DegreePath
-        SET major_gpa = (num_courses_taken * major_gpa - OldGradeNumeric + NewGradeNumeric) / num_courses_taken
-        WHERE student_id = NEW.student_id AND major_code = 'CS';
-    END IF;
-
-    -- SDS Major
-    IF OLD.course_id LIKE 'SDS%' OR OLD.course_id IN ('M262') THEN
-        UPDATE DegreePath
-        SET major_gpa = (num_courses_taken * major_gpa - OldGradeNumeric + NewGradeNumeric) / num_courses_taken
-        WHERE student_id = NEW.student_id AND major_code = 'SDS';
-    END IF;
+    -- Update GPA for majors that count this course
+    UPDATE DegreePath DP
+    JOIN CourseCountedToMajor CCM ON DP.major_code = CCM.major_code
+    SET major_gpa = 
+        (DP.num_courses_taken * DP.major_gpa - OldGradeNumeric + NewGradeNumeric) 
+        / DP.num_courses_taken
+    WHERE DP.student_id = NEW.student_id
+      AND CCM.course_id = OLD.course_id;
 
 END;
 //
@@ -607,7 +628,7 @@ END;
 
 
 DELIMITER //
-CREATE TRIGGER MajorCompleted AFTER UPDATE ON DegreePath
+CREATE TRIGGER MajorCompleted BEFORE UPDATE ON DegreePath
  FOR EACH ROW BEGIN
     DECLARE NumCoursesRequired INT;
     SELECT num_courses_required INTO NumCoursesRequired 
@@ -618,17 +639,16 @@ CREATE TRIGGER MajorCompleted AFTER UPDATE ON DegreePath
     ELSE
         SET NEW.finish_major = false;
     END IF;
-END
+END;
 //
 
-DELIMITER ;
 
 -- Create View
 
 DROP VIEW IF EXISTS dean_list;
 
 CREATE VIEW dean_list AS
-SELECT DISTINCT s.first_name, s.last_name, 
+SELECT DISTINCT s.first_name, s.last_name
 FROM Student AS s JOIN DegreePath as d ON s.student_id = d.student_id
 WHERE d.major_gpa >= 3.75;
 
@@ -727,3 +747,11 @@ GRANT SELECT
 ON knguyent_2425_db.CourseRegistration
 TO 'student'
 ;
+
+GRANT SELECT ON knguyent_2425_db.dean_list TO 'student';
+
+GRANT SELECT ON knguyent_2425_db.dean_list TO 'faculty_member';
+
+GRANT SELECT ON knguyent_2425_db.graduate_ready TO 'student';
+
+GRANT SELECT ON knguyent_2425_db.graduate_ready TO 'faculty_member';
